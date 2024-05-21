@@ -25,72 +25,84 @@ from os.path import dirname, join
 import pipeline.lib.geoprocessing as gp
 
 
+
 cutoff_year = 2005
 
-@lru_cache(maxsize=None)
-def is_in_protected_area(db_cursor, latitude, longitude):
-    db_cursor.execute("SELECT geometry FROM protected_areas")
-    return gp.is_in_protected_area(db_cursor.fetchall(),
-                                   latitude, longitude)
+
+class Database:
+    pipeline = None
+    external = None
+
+    @classmethod
+    def connect(cls):
+        cls.external = cls.external or psycopg2.connect(user=os.getenv('DATABASE_USER'),
+                                                        host=os.getenv('EXTERNAL_DATABASE'),
+                                                        database=os.getenv('DATABASE_NAME'),
+                                                        password=os.getenv('DATABASE_PASSWORD'))
+        cls.pipeline = cls.pipeline or psycopg2.connect(user=os.getenv('DATABASE_USER'),
+                                                        host=os.getenv('EXTERNAL_DATABASE'),
+                                                        database=os.getenv('DATABASE_NAME'),
+                                                        password=os.getenv('DATABASE_PASSWORD'))
+        return cls()
+
+    def close(self):
+        self.external.close()
+        self.pipeline.close()
 
 
-def deforestation_scoring(signs_of_deforestation,
-                          year_deforestation_occurred,
-                          is_farm_in_protected_area):
-    if signs_of_deforestation:
-        if year_deforestation_occurred < cutoff_year:
-            return True, "Deforestation occurred before the cutoff year."
+class HarvestProcessor:
+    def __init__(self):
+        self.db = Database.connect()
 
-        if is_farm_in_protected_area:
-            return False, "Recent deforestation in a protected area."
+    def __del__(self):
+        self.db.close()
 
-        return True, "Recent deforestation not in a protected area."
+    @lru_cache(maxsize=None)
+    def is_in_protected_area(self, db_cursor, latitude, longitude):
+        db_cursor.execute("SELECT geometry FROM protected_areas")
+        return gp.is_in_protected_area(db_cursor.fetchall(), latitude, longitude)
 
-    return True, "No signs of deforestation"
+    def deforestation_scoring(
+        self, signs_of_deforestation, year_deforestation_occurred, is_farm_in_protected_area
+    ):
+        if signs_of_deforestation:
+            if year_deforestation_occurred < cutoff_year:
+                return True, "Deforestation occurred before the cutoff year."
 
+            if is_farm_in_protected_area:
+                return False, "Recent deforestation in a protected area."
 
-def process_country_harvest(country, harvest):
-    conn1 = psycopg2.connect(user=os.getenv('DATABASE_USER'),
-                             host=os.getenv('EXTERNAL_DATABASE'),
-                             database=os.getenv('DATABASE_NAME'),
-                             password=os.getenv('DATABASE_PASSWORD'))
-    conn2 = psycopg2.connect(user=os.getenv('DATABASE_USER'),
-                             host=os.getenv('DATABASE_HOST'),
-                             database=os.getenv('DATABASE_NAME'),
-                             password=os.getenv('DATABASE_PASSWORD'))
+            return True, "Recent deforestation not in a protected area."
 
-    query_file_name = '%s_%s_surveys.sql' % (country, harvest)
-    query_path = join(dirname(__file__), query_file_name)
-    cur = conn1.cursor()
-    cur.execute(open(query_path).read())
+        return True, "No signs of deforestation"
 
-    for (survey_id, signs_deforestation_occurred,
-         year_deforestation_occurred,
-         latitude, longitude) in cur.fetchall():
+    def process_country_harvest(self, country, harvest):
+        query_file_name = '%s_%s_surveys.sql' % (country, harvest)
+        query_path = join(dirname(__file__), query_file_name)
+        cur = self.db.external.cursor()
+        cur.execute(open(query_path).read())
 
-        is_farm_in_protected_area = is_in_protected_area(cur,
-                                                         latitude, longitude)
-
-        passes, reason = deforestation_scoring(signs_deforestation_occurred,
-                                               year_deforestation_occurred,
-                                               is_farm_in_protected_area)
-
-        cur2 = conn2.cursor()
-        insert_q = """
-        INSERT INTO scoring_results (survey_id, country, harvest,
-                                     DF1_passes, DF1_explanation ) 
-        VALUES ('%s', '%s', '%s', '%s', '%s')
-        """ % (survey_id, country, harvest, passes, reason)
-
-        cur2.execute(insert_q)
-        conn2.commit()
+        for (survey_id, signs_deforestation_occurred, 
+             year_deforestation_occurred, latitude, longitude
+        ) in cur.fetchall():
+            is_farm_in_protected_area = self.is_in_protected_area(cur, latitude, longitude)
+            passes, reason = self.deforestation_scoring(signs_deforestation_occurred,
+                                                        year_deforestation_occurred,
+                                                        is_farm_in_protected_area)
+            cur2 = self.db.pipeline.cursor()
+            insert_q = """
+            INSERT INTO scoring_results (survey_id, country, harvest,
+                                        DF1_passes, DF1_explanation ) 
+            VALUES ('%s', '%s', '%s', '%s', '%s')
+            """ % (survey_id, country, harvest, passes, reason)
+            cur2.execute(insert_q)
+            self.db.pipeline.commit()
 
 
-path = join(dirname(__file__), 'pipelines.txt')
-
-while True:
-    pipelines_to_process = open(path).read().split('\n')
-
-    for pipeline in pipelines_to_process:
-        country, harvest = pipeline.split(',')
-        process_country_harvest(country, harvest)
+if __name__ == '__main__':
+    p = HarvestProcessor()
+    path = join(dirname(__file__), 'pipelines.txt')
+    while True:
+        for pipeline in open(path).read().split('\n'):
+            country, harvest = pipeline.split(',')
+            p.process_country_harvest(country, harvest)
