@@ -19,9 +19,9 @@
 import os
 import psycopg2
 
-from functools import lru_cache
 from os.path import dirname, join
 
+from .cache import cached
 import pipeline.lib.geoprocessing as gp
 
 
@@ -57,7 +57,7 @@ class HarvestProcessor:
     def __del__(self):
         self.db.close()
 
-    @lru_cache(maxsize=None)
+    @cached('store.json')
     def is_in_protected_area(self, db_cursor, latitude, longitude):
         db_cursor.execute("SELECT geometry FROM protected_areas")
         return gp.is_in_protected_area(db_cursor.fetchall(), latitude, longitude)
