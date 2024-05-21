@@ -77,26 +77,31 @@ class HarvestProcessor:
         return True, "No signs of deforestation"
 
     def process_country_harvest(self, country, harvest):
-        query_file_name = '%s_%s_surveys.sql' % (country, harvest)
-        query_path = join(dirname(__file__), query_file_name)
-        cur = self.db.external.cursor()
-        cur.execute(open(query_path).read())
+        try:
+            query_file_name = '%s_%s_surveys.sql' % (country, harvest)
+            query_path = join(dirname(__file__), query_file_name)
+            cur = self.db.external.cursor()
+            cur.execute(open(query_path).read())
 
-        for (survey_id, signs_deforestation_occurred, 
-             year_deforestation_occurred, latitude, longitude
-        ) in cur.fetchall():
-            is_farm_in_protected_area = self.is_in_protected_area(cur, latitude, longitude)
-            passes, reason = self.deforestation_scoring(signs_deforestation_occurred,
-                                                        year_deforestation_occurred,
-                                                        is_farm_in_protected_area)
-            cur2 = self.db.pipeline.cursor()
-            insert_q = """
-            INSERT INTO scoring_results (survey_id, country, harvest,
-                                        DF1_passes, DF1_explanation ) 
-            VALUES ('%s', '%s', '%s', '%s', '%s')
-            """ % (survey_id, country, harvest, passes, reason)
-            cur2.execute(insert_q)
-            self.db.pipeline.commit()
+            for (survey_id, signs_deforestation_occurred,
+                year_deforestation_occurred, latitude, longitude
+            ) in cur.fetchall():
+                is_farm_in_protected_area = self.is_in_protected_area(cur, latitude, longitude)
+                passes, reason = self.deforestation_scoring(signs_deforestation_occurred,
+                                                            year_deforestation_occurred,
+                                                            is_farm_in_protected_area)
+                cur2 = self.db.pipeline.cursor()
+                insert_q = """
+                INSERT INTO scoring_results (survey_id, country, harvest,
+                                            DF1_passes, DF1_explanation )
+                VALUES ('%s', '%s', '%s', '%s', '%s')
+                """ % (survey_id, country, harvest, passes, reason)
+                cur2.execute(insert_q)
+                self.db.pipeline.commit()
+        except psycopg2.Error as err:
+            print("Failed to process ('%s', '%s')" % (country, harvest), err)
+            with open('/tmp/errors.txt', 'a') as f:
+                f.write("%s - %s" % (country, harvest))
 
 
 if __name__ == '__main__':
