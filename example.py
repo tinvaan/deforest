@@ -17,10 +17,10 @@
 # pipeline.scoring.deforestation
 
 import os
-import os.path
 import psycopg2
 
 from functools import lru_cache
+from os.path import dirname, join
 
 import pipeline.lib.geoprocessing as gp
 
@@ -60,7 +60,7 @@ def process_country_harvest(country, harvest):
                              password=os.getenv('DATABASE_PASSWORD'))
 
     query_file_name = '%s_%s_surveys.sql' % (country, harvest)
-    query_path = os.path.join(os.path.dirname(__file__), query_file_name)
+    query_path = join(dirname(__file__), query_file_name)
     cur = conn1.cursor()
     cur.execute(open(query_path).read())
 
@@ -86,7 +86,7 @@ def process_country_harvest(country, harvest):
         conn2.commit()
 
 
-path = os.path.join(os.path.dirname(__file__), 'pipelines.txt')
+path = join(dirname(__file__), 'pipelines.txt')
 
 while True:
     pipelines_to_process = open(path).read().split('\n')
