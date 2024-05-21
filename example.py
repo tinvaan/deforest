@@ -21,8 +21,10 @@ import psycopg2
 
 from os.path import dirname, join
 
-from .cache import cached
 import pipeline.lib.geoprocessing as gp
+from .cache import cached
+from .prepare import PreparingCursor
+
 
 
 
@@ -90,7 +92,7 @@ class HarvestProcessor:
                 passes, reason = self.deforestation_scoring(signs_deforestation_occurred,
                                                             year_deforestation_occurred,
                                                             is_farm_in_protected_area)
-                cur2 = self.db.pipeline.cursor()
+                cur2 = self.db.pipeline.cursor(cursor_factory=PreparingCursor)
                 insert_q = """
                 INSERT INTO scoring_results (survey_id, country, harvest,
                                             DF1_passes, DF1_explanation )
