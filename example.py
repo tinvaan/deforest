@@ -26,8 +26,6 @@ from .cache import cached
 from .prepare import PreparingCursor
 
 
-
-
 cutoff_year = 2005
 
 
