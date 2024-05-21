@@ -16,10 +16,14 @@
 
 # pipeline.scoring.deforestation
 
+import os
 import os.path
 import psycopg2
+
 from functools import lru_cache
+
 import pipeline.lib.geoprocessing as gp
+
 
 cutoff_year = 2005
 
@@ -46,12 +50,14 @@ def deforestation_scoring(signs_of_deforestation,
 
 
 def process_country_harvest(country, harvest):
-    conn1 = psycopg2.connect(host="external_db.enveritas.org",
-                             database="postgres", user="postgres",
-                             password="postgres")
-    conn2 = psycopg2.connect(host="pipeline_dest.enveritas.org",
-                             database="postgres", user="postgres",
-                             password="postgres")
+    conn1 = psycopg2.connect(user=os.getenv('DATABASE_USER'),
+                             host=os.getenv('EXTERNAL_DATABASE'),
+                             database=os.getenv('DATABASE_NAME'),
+                             password=os.getenv('DATABASE_PASSWORD'))
+    conn2 = psycopg2.connect(user=os.getenv('DATABASE_USER'),
+                             host=os.getenv('DATABASE_HOST'),
+                             database=os.getenv('DATABASE_NAME'),
+                             password=os.getenv('DATABASE_PASSWORD'))
 
     query_file_name = '%s_%s_surveys.sql' % (country, harvest)
     query_path = os.path.join(os.path.dirname(__file__), query_file_name)
